@@ -1,0 +1,54 @@
+name: seal-build
+
+# Upstream (v2.0.0, 2019-06-18) ships no GitHub Actions CI at all - only
+# appveyor.yml / .travis.yml, both of which just run `npm test` on the Node
+# "stable" of the day. This workflow is authored from scratch to reproduce the
+# project's own build (`yarn build` -> tsc declarations + rollup) and its own
+# full test suite (`yarn test` -> mocha over test/test.ts via ts-node), then
+# pack the published tarball.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "12"
+
+      # yarn.lock is complete (resolved URLs + integrity for every entry), so
+      # --frozen-lockfile fully pins the 2019 toolchain: rollup 0.66,
+      # typescript 3.1, mocha 5, ts-node 7. No registry pinning needed.
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # scripts.build = `npm run build-declarations && rollup -c`
+      # -> tsc -d + scripts/move-type-declarations.js, then rollup into
+      #    dist/devalue.umd.js and dist/devalue.esm.js.
+      - name: Build
+        run: yarn build
+
+      # scripts.test = `mocha --opts mocha.opts` - the project's full suite,
+      # run unmodified.
+      - name: Test
+        run: yarn test
+
+      # --ignore-scripts keeps prepublishOnly (build + test) from re-running;
+      # both have already run above against the same tree.
+      - name: Pack
+        run: npm pack --ignore-scripts
+
+      - name: Upload package tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: devalue-*.tgz
+          if-no-files-found: error
